@@ -25,9 +25,37 @@ from tyffin_geo import Geo
 true = True
 false = False
 
+# FridaysForFuture lets people send forms to register events around
+# the world. These forms need to be properly validated, and for this
+# purpose the hosted form entry service TypeForm has been selected.
+#
+# TypeForm has a nice form editor which people may use to create the
+# form with all the questions necessary. Some of the questions relate
+# to the country, state, city and venue within a city, that the event
+# is taking place at. Historically, this has been left as text entry
+# fields. Unfortunately, this has led to data with lower quality than
+# necessary, as people spelled and described locations in many 
+# different ways.
+#
+# In order to better validate this information, the form needs to
+# contain valid options for the registrant to choose from, plus the
+# ability to say "Other", and add a new city or venue. We will not
+# allow users to add countries or states. This system already knows
+# about all the countries and states that we allow.
+#
+# Since the set of cities and venues with events grow constantly, and
+# there are thousands of locations, this system creates these 
+# questions automatically, rather than a human adding choices in the
+# TypeForm editor.
+#
+# This program downloads the TypeForm form, removes all location
+# related questions, adds all the location related questions that it
+# fetches from the map database, then uploads the result.
+
 class Formtree:
   master_typeform = 'DFFFuY'
 
+  # Download TypeForm form and initialize processing structures
   def __init__(self, form_id):
     self.tree = self.fetch_typeform(form_id)
     if 'logic' not in self.tree:
@@ -36,6 +64,7 @@ class Formtree:
     self.fields = []
     self.logic = []
 
+  # Load a typeform from the web based on form-id
   def fetch_typeform(self, form_id):
     token_env = 'TYPEFORM_TOKEN'
     if token_env not in os.environ:
@@ -44,22 +73,34 @@ class Formtree:
     form_dict = forms.get(form_id)
     return form_dict
 
+  # Load a typeform json file based on filename
   def load_typeform_file(self, source_filename):
     with open(source_filename, "rt", encoding="utf-8") as source_file:
       self.tree = json.loads(source_file.read())
 
+  # Generate a random UUID
   def gen_uuid():
     return str(uuid.uuid4())
 
+  # Generate all the TypeForm questions about locations, i.e.
+  # country, state, city or venue. This function is the entrypoint
+  # that will traverse all the locations in the Geo.atlas
   def make_geo_qs(self):
     self.ref_jump_back_q = self.find_ref_for_title('How many people')
     self.ref_first_place_q = self._make_geo_rec('Earth', Geo.atlas['Earth'], [])
 
+  # Generate a TypeForm question for a particular location.
+  # The location could be a country, state, city or venue
+  # The function will call itself recursively to generate
+  # questions for locations within the location, such as cities
+  # within a country.
   def _make_geo_rec(self, geo_name, geo_info, geo_path):
     (geo_subcat, geo_sub) = geo_info
     new_path = geo_path + [geo_name]
     this_qid = Formtree.gen_uuid()
     label_other = '== Other =='
+
+    # Generate question
     self.fields += [{
       "title": Geo.get_title(geo_subcat, new_path),
       "ref": this_qid,
@@ -83,11 +124,19 @@ class Formtree:
       "type": "dropdown"
       #"type": "multiple_choice"
     }]
+
+    # Generate logic jump
     actions = []
     for geo_loc in geo_sub:
+      # For each choice within this location, generate a sub-question
       if not isinstance(geo_sub[geo_loc], tuple):
+        # If this choice has no sub-locations, don't generate anything
+        # for this choice
         continue
+      # This location has sub-locations, generate them
       next_q = self._make_geo_rec(geo_loc, geo_sub[geo_loc], new_path)
+      # Add a logic jump from the parent question, so that if this choice
+      # is selected, TypeForm will jump to the relevant sub-question
       if next_q:
         actions += [{
             "action": "jump",
@@ -112,6 +161,8 @@ class Formtree:
             }
         }]
 
+    # Finally, add a catch-all logic jump back to the question that
+    # goes after the country, state, city, venue questions
     self.logic += [{
         "type": "field",
         "ref": this_qid,
@@ -133,7 +184,13 @@ class Formtree:
     }]
     return this_qid
 
-  def clean_prototypes(self):
+  # Remove any questions that relate to country, state, city or venue
+  #
+  # This is done by looking at the first two words of the question.
+  # If it starts with "Which" and one of the Geo category words,
+  # it will be removed. Then remove all logic jumps that relate to
+  # the removed questions
+  def clean_geo_questions(self):
     deleted_refs = {'914f7827-62cd-413a-8bea-0f11b1d1d974':0}
     deleted_count = 0
     for (n,q) in enumerate(list(self.tree['fields'])):
@@ -154,6 +211,7 @@ class Formtree:
         deleted_count += 1
     print(f"Cleaned out {deleted_count} logic jumps")
 
+  # Find the ref code for a question that starts with the given title
   def find_ref_for_title(self, title_start):
     for q in self.tree['fields']:
       #print(f"Looking for {title_start} in {q['title']}")
@@ -162,6 +220,8 @@ class Formtree:
     print(f"### Did not find any question starting '{title_start}'")
     return None
 
+  # Add logic jump from a particular manually defined question to first
+  # generated question
   def add_jump_out_logic(self):
     ref_jump_out_q = self.find_ref_for_title('What time of day')
     self.logic += [{
@@ -184,10 +244,14 @@ class Formtree:
         ]
     }]
 
+  # Add the generated questions and jump logic back to TypeForm
   def merge_changes(self):
     self.tree['fields'] += self.fields
     self.tree['logic'] += self.logic
 
+  # TypeForm uses UUIDs to identify questions in the
+  # logic jumps. This function validates that all logic
+  # jumps are referring to questions that actually exist
   def validate_refs(self):
     fields = {}
     for q in self.tree['fields']:
@@ -231,12 +295,14 @@ class Formtree:
     for f in fields:
       print(f"{f} : {fields[f]}")
 
+  # Write form to a local file
   def write(self, output_file):
     with open(output_file, "wt", encoding="utf-8") as out:
       out.write(json.dumps(self.tree, indent=2))
 
 def usage():
-  print("Hej")#FIXME
+  # FIXME: Add proper usage message
+  print("Hej")
 
 def main():
   output_file = None
@@ -253,18 +319,26 @@ def main():
     elif opt in ("-o", "--output"):
       output_file = arg
 
-
+  # Form generation top level:
+  # Download existing form from TypeForm servers
   tree = Formtree(Formtree.master_typeform)  
-  tree.clean_prototypes()
+  # Remove all country, state, city, venue related questions
+  tree.clean_geo_questions()
+  # Make new country, state, city, venue questions
   tree.make_geo_qs()
+  # Add logic jump to country, ... questions
   tree.add_jump_out_logic()
+  # Merge added questions and logic to original form
   tree.merge_changes()
+  # (optional) Validate all question references before uploading
   tree.validate_refs()
 
-  # DFFFuY
   if output_file:
+    # File output; can be manually inspected and uploaded to TypeForm
+    # by e.g. Postman PUT https://api.typeform.com/forms/DFFFuY
     tree.write(output_file)
   else:
+    # FIXME: Add automatic upload of the result
     pass # tree.upload_typeform('yQuH5S')
 
 if __name__ == '__main__':

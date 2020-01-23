@@ -21,6 +21,7 @@ import requests, json
 # countries, states, cities, and venues known to FFF.
 
 class Geo:
+  # The atlas contains names of different sub-categories:
   EARTH = "earth"
   COUNTRY = "country"
   STATE = "state"
@@ -28,26 +29,41 @@ class Geo:
   VENUE = "venue"
   Z = None
 
+  # Initialize the atlas datastructure with information from the map
+  # database.
+  # FIXME: This information is currently loaded from a file, not the web
+  #
+  # The atlas datastructure has hardcoded information about countries
+  # and states. This function adds cities and venues into that structure.
   def init_from_livedata():
     geo_filename = 'fff-global-map.json'
     with open(geo_filename, "rt", encoding="utf-8") as source_file:
       livedata = json.loads(source_file.read())
     country_names = Geo.atlas['Earth'][1]
+
+    # Loop over all the map pins
     for live in livedata['data']:
+      # If a map pin doesn't have "Town" information, it's broken, skip it
       if 'Town' not in live: continue
       #print(f"live={live}")
+
+      # Split town and venue names from map pin data
       live_city_venue = Geo.get_city_name(live['Town']).split(', ')
       live_city = live_city_venue[-1]
       live_venue = live_city_venue[-2] if len(live_city_venue) > 1 else None
+
+      # Split country and state names from map pin data
       live_country_state = Geo.get_city_name(live['Country']).split('--')
       live_country = live_country_state[0]
       if live_country not in Geo.atlas['Earth'][1]:
         if live_country in Geo.canonical_names[Geo.COUNTRY]:
           live_country = Geo.canonical_names[Geo.COUNTRY][live_country]
         else:
+          # The country name is not in the atlas structure, skip this pin
           print(f"Skipping country {live_country}")
           continue
-      if len(live_country_state) > 1: # Has state
+      if len(live_country_state) > 1: 
+        # This pin is in a country which has states
         live_state = live_country_state[1] 
         if live_state not in Geo.atlas['Earth'][1][live_country][1]:
           if live_state in Geo.canonical_names[Geo.STATE][live_country]:
@@ -58,23 +74,31 @@ class Geo:
         if live_state not in Geo.atlas['Earth'][1][live_country][1] or Geo.atlas['Earth'][1][live_country][1][live_state] == Geo.Z:
           Geo.atlas['Earth'][1][live_country][1][live_state] = (Geo.CITY, {})
         if live_venue:
+          # This map pin has a venue
           if live_city not in Geo.atlas['Earth'][1][live_country][1][live_state][1]:
             Geo.atlas['Earth'][1][live_country][1][live_state][1][live_city] = (Geo.VENUE, {})
           Geo.atlas['Earth'][1][live_country][1][live_state][1][live_city][1][live_venue] = Geo.Z
         else:
+          # This map pin doesn't have a venue
           Geo.atlas['Earth'][1][live_country][1][live_state][1][live_city] = Geo.Z
       else:
+        # This pin is in a country which doesn't have states
         #print(f"Adding {live_country}:{live_city}")
         if Geo.atlas['Earth'][1][live_country] == Geo.Z:
           Geo.atlas['Earth'][1][live_country] = (Geo.CITY, {})
         if live_venue:
+          # This map pin has a venue
           if live_city not in Geo.atlas['Earth'][1][live_country][1]:
             Geo.atlas['Earth'][1][live_country][1][live_city] = (Geo.VENUE, {})
           Geo.atlas['Earth'][1][live_country][1][live_city][1][live_venue] = Geo.Z
         else:
+          # This map pin doesn't have a venue
           Geo.atlas['Earth'][1][live_country][1][live_city] = Geo.Z
     #print(f"Atlas={Geo.atlas}")
 
+  # This function removes unwanted words from the Town name, as 
+  # received from Google Maps. Names often contain Zip codes, or 
+  # unwanted words like "Prefecture" or "Municipality"
   def clean_zip(name_with_zip):
     def is_clean_word(word):
       tipp = "0123456789()"
@@ -91,18 +115,23 @@ class Geo:
     result = " ".join([w for w in clean_name if w != ''])
     return result
 
+  # Returns the actual city name part of a Google Maps name
   def get_city_name(raw_city_name):
     return Geo.clean_zip(raw_city_name.split(",")[-1])
 
+  # Returns the name of a location regardless if it has sub-locations
+  # or not
   def get_label(geo_info):
     return geo_info[0] if isinstance(geo_info, tuple) else geo_info
 
+  # Returns a suitable question title for the location
   def get_title(geo_subcat, geo_path):
     path = geo_path[1:]
     if path == []:
       return f"Which country is the event in?"
     return f"Which {geo_subcat} in {path[-1]} is the event in?"
 
+  # Returns the location tuple for a given atlas path
   def get_named_loc(geo_path):
     p = Geo.atlas["Earth"]
     for pname in geo_path:
@@ -118,11 +147,16 @@ class Geo:
         return None
     return p
 
+  # Return the subcategory string ("country", etc) from a location tuple
   def get_subcat(geo_tuple):
     return geo_tuple[0]
+  # Return the location name("USA", "Paris", etc) from a location tuple
   def get_name(geo_tuple):
     return geo_tuple[1]
 
+  # The canonical_names data structure contains names that we sometimes 
+  # get from Google Maps, which are wrong. At least from our perspective.
+  # the canonical names remap such names to the name we want.
   canonical_names = {
     COUNTRY:{
       "Trikomo":"Cyprus",
@@ -224,13 +258,12 @@ class Geo:
     },
   }
 
-
 # atlas data structure
 #
 # The atlas data structure is built up as a set of a dictionary where 
 # each element is either None (called Z in the structures), when there
 # is no further data about this place, or a 2-tuple (level, dict), 
-# where dict is a string indicating if what the members of the dict
+# where level is a string indicating if what the members of the dict
 # are, e.g. countries, states, cities or venues.
 #
 # The structure is hard initialized to contain the known list of 
