@@ -19,19 +19,20 @@
 import sys, os, getopt
 import requests, json, uuid
 from typeform import Typeform
-from tyffin_geo import *
+from tyffin_geo import Geo
 
-geo_filename = 'fff-global-map.json'
 # json global constants
 true = True
 false = False
 
 class Formtree:
+  master_typeform = 'DFFFuY'
+
   def __init__(self, form_id):
     self.tree = self.fetch_typeform(form_id)
-    with open(geo_filename, "rt", encoding="utf-8") as source_file:
-      self.geo_live = json.loads(source_file.read())
-      self.init_geo_data()
+    if 'logic' not in self.tree:
+      self.tree['logic'] = []
+    Geo.init_from_livedata()
     self.fields = []
     self.logic = []
 
@@ -47,66 +48,12 @@ class Formtree:
     with open(source_filename, "rt", encoding="utf-8") as source_file:
       self.tree = json.loads(source_file.read())
 
-  def clean_zip(name_with_zip):
-    def is_clean_word(word):
-      tipp = "0123456789()"
-      for ch in word:
-        if ch in tipp:
-          return False
-      return True
-    name_words = name_with_zip.split(" ")
-    clean_name = []
-    # We don't want words containing these characters and words
-    for name_word in name_words:
-      if is_clean_word(name_word) and name_word not in ['Municipality', 'Prefecture']:
-        clean_name += [name_word]
-    result = " ".join([w for w in clean_name if w != ''])
-    return result
-
-  def get_city_name(raw_city_name):
-    return Formtree.clean_zip(raw_city_name.split(",")[-1])
-
-  def init_geo_data(self):
-    country_names = atlas['Earth'][1]
-    for live in self.geo_live['data']:
-      if 'Town' not in live: continue
-      #print(f"live={live}")
-      live_city_venue = Formtree.get_city_name(live['Town']).split(', ')
-      live_city = live_city_venue[-1]
-      live_venue = live_city_venue[-2] if len(live_city_venue) > 1 else None
-      live_country_state = Formtree.get_city_name(live['Country']).split('--')
-      live_country = live_country_state[0]
-      if live_country not in atlas['Earth'][1]:
-        print(f"Skipping country {live_country}")
-        continue
-      if len(live_country_state) > 1: # Has state
-        live_state = live_country_state[1] 
-        if atlas['Earth'][1][live_country] == Z:
-          atlas['Earth'][1][live_country] = (STATE, {})
-        if live_state not in atlas['Earth'][1][live_country][1]:
-          atlas['Earth'][1][live_country][1][live_state] = (CITY, {})
-        if live_venue:
-          if live_city not in atlas['Earth'][1][live_country][1][live_state][1]:
-            atlas['Earth'][1][live_country][1][live_state][1][live_city] = (VENUE, {})
-          atlas['Earth'][1][live_country][1][live_state][1][live_city][1][live_venue] = Z
-        else:
-          atlas['Earth'][1][live_country][1][live_state][1][live_city] = Z
-      else:
-        if atlas['Earth'][1][live_country] == Z:
-          atlas['Earth'][1][live_country] = (CITY, {})
-        if live_venue:
-          if live_city not in atlas['Earth'][1][live_country][1]:
-            atlas['Earth'][1][live_country][1][live_city] = (VENUE, {})
-          atlas['Earth'][1][live_country][1][live_city][1][live_venue] = Z
-        else:
-          atlas['Earth'][1][live_country][1][live_city] = Z
-    print(f"Atlas={atlas}")
-
   def gen_uuid():
     return str(uuid.uuid4())
 
   def make_geo_qs(self):
-    self._make_geo_rec('Earth', atlas['Earth'], [])
+    self.ref_jump_back_q = self.find_ref_for_title('How many people')
+    self.ref_first_place_q = self._make_geo_rec('Earth', Geo.atlas['Earth'], [])
 
   def _make_geo_rec(self, geo_name, geo_info, geo_path):
     (geo_subcat, geo_sub) = geo_info
@@ -114,7 +61,7 @@ class Formtree:
     this_qid = Formtree.gen_uuid()
     label_other = '== Other =='
     self.fields += [{
-      "title": geo_get_title(geo_subcat, new_path),
+      "title": Geo.get_title(geo_subcat, new_path),
       "ref": this_qid,
       "properties": {
           "alphabetical_order": true,
@@ -124,11 +71,11 @@ class Formtree:
           #"vertical_alignment": true,
           "choices": [
               {
-                  "label": geo_get_label(geo_loc)
+                  "label": Geo.get_label(geo_loc)
               } for geo_loc in geo_sub if geo_loc
           ] + ([{
                   "label": label_other
-          }] if geo_subcat not in [COUNTRY, STATE] else [])
+          }] if geo_subcat not in [Geo.COUNTRY, Geo.STATE] else [])
       },
       "validations": {
           "required": true
@@ -173,8 +120,8 @@ class Formtree:
                 "action": "jump",
                 "details": {
                     "to": {
-                        "type": "thankyou",
-                        "value": "default_tys"
+                        "type": "field",
+                        "value": self.ref_jump_back_q
                     }
                 },
                 "condition": {
@@ -186,11 +133,103 @@ class Formtree:
     }]
     return this_qid
 
+  def clean_prototypes(self):
+    deleted_refs = {'914f7827-62cd-413a-8bea-0f11b1d1d974':0}
+    deleted_count = 0
+    for (n,q) in enumerate(list(self.tree['fields'])):
+      question_words = q['title'].split(" ")
+      if question_words[0] == "Which" and question_words[1] in [
+          Geo.COUNTRY, Geo.STATE, Geo.CITY, Geo.VENUE]:
+        #print(f"Cleaning out '{q['title']}:{q}'")
+        deleted_refs[q['ref']] = None
+        del self.tree['fields'][n - deleted_count]
+        deleted_count += 1
+    print(f"Cleaned out {deleted_count} questions")
+    deleted_count = 0
+    for (n,j) in enumerate(list(self.tree['logic'])):
+      #{"actions": [ { "details": { "to": { "value": ]
+      if j['ref'] in deleted_refs or j.get('actions',[{}])[0].get('details',{}).get('to',{}).get('value') in deleted_refs:
+        print(f"Cleaning out logic jump {j['ref']}")
+        del self.tree['logic'][n - deleted_count]
+        deleted_count += 1
+    print(f"Cleaned out {deleted_count} logic jumps")
+
+  def find_ref_for_title(self, title_start):
+    for q in self.tree['fields']:
+      #print(f"Looking for {title_start} in {q['title']}")
+      if q['title'].startswith(title_start):
+        return q['ref']
+    print(f"### Did not find any question starting '{title_start}'")
+    return None
+
+  def add_jump_out_logic(self):
+    ref_jump_out_q = self.find_ref_for_title('What time of day')
+    self.logic += [{
+        "type": "field",
+        "ref": ref_jump_out_q,
+        "actions": [
+            {
+                "action": "jump",
+                "details": {
+                    "to": {
+                        "type": "field",
+                        "value": self.ref_first_place_q
+                    }
+                },
+                "condition": {
+                    "op": "always",
+                    "vars": []
+                }
+            }
+        ]
+    }]
+
   def merge_changes(self):
     self.tree['fields'] += self.fields
-    if 'logic' not in self.tree:
-      self.tree['logic'] = []
     self.tree['logic'] += self.logic
+
+  def validate_refs(self):
+    fields = {}
+    for q in self.tree['fields']:
+      fields[q['ref']] = 0
+    for j in self.tree['logic']:
+      if 'ref' not in j:
+        print(f"### No ref in jump")
+        continue
+      if j['ref'] not in fields:
+        print(f"### Jump from unknown field {j['ref']}")
+        continue
+      if 'actions' not in j:
+        print(f"### No actions in jump: {j}")
+        continue
+      for act in j['actions']:
+        if 'details' not in act:
+          print(f"### No details in jump: {j}")
+          continue
+        if 'to' not in act['details']:
+          print(f"### No to in jump")
+          continue
+        if 'value' not in act['details']['to']:
+          print(f"### No value in jump")
+          continue
+        if act['details']['to']['value'] not in fields:
+          print(f"### Jump to unknown field {act['details']['to']['value']}")
+          continue
+        if 'condition' not in act:
+          print(f"### No condition in jump")
+          continue
+        if 'vars' not in act['condition']:
+          print(f"### No vars in jump")
+          continue
+        for var in act['condition']['vars']:
+          if 'value' not in var:
+            print(f"### No value in jump condition")
+            continue
+          if var['value'] not in fields:
+            print(f"### Jump reference to unknown field {var['value']}")
+            continue
+    for f in fields:
+      print(f"{f} : {fields[f]}")
 
   def write(self, output_file):
     with open(output_file, "wt", encoding="utf-8") as out:
@@ -200,7 +239,6 @@ def usage():
   print("Hej")#FIXME
 
 def main():
-  input_file = None
   output_file = None
   try:
     opts, args = getopt.getopt(sys.argv[1:],"hi:o:",
@@ -212,16 +250,22 @@ def main():
     if opt in ('-h', '--help'):
       usage()
       sys.exit()
-    elif opt in ("-i", "--input"):
-      input_file = arg
     elif opt in ("-o", "--output"):
       output_file = arg
 
-  tree = Formtree('DFFFuY')
-  #tree.clean_prototypes()
+
+  tree = Formtree(Formtree.master_typeform)  
+  tree.clean_prototypes()
   tree.make_geo_qs()
+  tree.add_jump_out_logic()
   tree.merge_changes()
-  tree.write(output_file)
+  tree.validate_refs()
+
+  # DFFFuY
+  if output_file:
+    tree.write(output_file)
+  else:
+    pass # tree.upload_typeform('yQuH5S')
 
 if __name__ == '__main__':
   main()
