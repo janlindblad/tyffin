@@ -124,13 +124,6 @@ class Geo:
   def get_label(geo_info):
     return geo_info[0] if isinstance(geo_info, tuple) else geo_info
 
-  # Returns a suitable question title for the location
-  def get_title(geo_subcat, geo_path):
-    path = geo_path[1:]
-    if path == []:
-      return f"Which country is the event in?"
-    return f"Which {geo_subcat} in {path[-1]} is the event in?"
-
   # Returns the location tuple for a given atlas path
   def get_named_loc(geo_path):
     p = Geo.atlas["Earth"]

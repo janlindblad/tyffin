@@ -52,26 +52,38 @@ false = False
 # related questions, adds all the location related questions that it
 # fetches from the map database, then uploads the result.
 
-class Formtree:
-  master_typeform = 'DFFFuY'
+# FIXME: Handle venues within cities
+# FIXME: Handle new cities ("other" city)
+# FIXME: Handle new venues ("other" venue)
 
+class Formtree:
+  master_typeform = 'yQuH5S'
+  public_typeform = 'DFFFuY'
+  
   # Download TypeForm form and initialize processing structures
   def __init__(self, form_id):
-    self.tree = self.fetch_typeform(form_id)
+    print(f"Reading TypeForm '{form_id}'")
+    self.forms = self.fetch_typeform_form_cat()
+    self.tree = self.fetch_form_dict(form_id)
     if 'logic' not in self.tree:
       self.tree['logic'] = []
+    self.refs = {}
+    print(f"Initializing from FFF database")
     Geo.init_from_livedata()
-    self.fields = []
-    self.logic = []
+    print(f"Done initializing")
 
-  # Load a typeform from the web based on form-id
-  def fetch_typeform(self, form_id):
+  # Fetch typeform form catalogue from the web
+  def fetch_typeform_form_cat(self):
     token_env = 'TYPEFORM_TOKEN'
     if token_env not in os.environ:
       raise Exception(f"Environment variable '{token_env}' not set")
     forms = Typeform(os.environ[token_env]).forms
-    form_dict = forms.get(form_id)
-    return form_dict
+    return forms
+    
+  # Fetch a typeform from the web based on form-id
+  def fetch_form_dict(self, form_id):
+    form_dict = self.forms.get(form_id)
+    return form_dict  
 
   # Load a typeform json file based on filename
   def load_typeform_file(self, source_filename):
@@ -86,8 +98,12 @@ class Formtree:
   # country, state, city or venue. This function is the entrypoint
   # that will traverse all the locations in the Geo.atlas
   def make_geo_qs(self):
-    self.ref_jump_back_q = self.find_ref_for_title('How many people')
-    self.ref_first_place_q = self._make_geo_rec('Earth', Geo.atlas['Earth'], [])
+    self.refs['L1'] = self._make_geo_rec('Earth', Geo.atlas['Earth'], [])
+
+  def get_title(geo_subcat, geo_path):
+    if len(geo_path) < 2:
+      return f"[L1] Which country is the event in?"
+    return f"[L{len(geo_path)}] Which {geo_subcat} in {geo_path[-1]} is the event in?"
 
   # Generate a TypeForm question for a particular location.
   # The location could be a country, state, city or venue
@@ -101,8 +117,8 @@ class Formtree:
     label_other = '== Other =='
 
     # Generate question
-    self.fields += [{
-      "title": Geo.get_title(geo_subcat, new_path),
+    self.tree['fields'] += [{
+      "title": Formtree.get_title(geo_subcat, new_path),
       "ref": this_qid,
       "properties": {
           "alphabetical_order": true,
@@ -163,7 +179,7 @@ class Formtree:
 
     # Finally, add a catch-all logic jump back to the question that
     # goes after the country, state, city, venue questions
-    self.logic += [{
+    self.tree['logic'] += [{
         "type": "field",
         "ref": this_qid,
         "actions": actions + [
@@ -172,7 +188,7 @@ class Formtree:
                 "details": {
                     "to": {
                         "type": "field",
-                        "value": self.ref_jump_back_q
+                        "value": self.refs['F1']
                     }
                 },
                 "condition": {
@@ -184,19 +200,26 @@ class Formtree:
     }]
     return this_qid
 
+  # Remove any questionb "id" attributes (that we read from TypeForm)
+  # TypeForm likes to assign them, and does not tolerate them if 
+  # the question did not previously exist (in the form being written)
+  def clean_ids(self):
+    for q in self.tree['fields']:
+      if 'id' in q:
+        del q['id']
+    
   # Remove any questions that relate to country, state, city or venue
   #
-  # This is done by looking at the first two words of the question.
-  # If it starts with "Which" and one of the Geo category words,
-  # it will be removed. Then remove all logic jumps that relate to
-  # the removed questions
+  # This is done by looking at the first few characters of the question
+  # title. Location questions will have "[L.]" at the beginning of the
+  # question (the dot stands for a number). Then remove all logic jumps 
+  # that relate to the removed questions
   def clean_geo_questions(self):
-    deleted_refs = {'914f7827-62cd-413a-8bea-0f11b1d1d974':0}
+    deleted_refs = {}
     deleted_count = 0
     for (n,q) in enumerate(list(self.tree['fields'])):
       question_words = q['title'].split(" ")
-      if question_words[0] == "Which" and question_words[1] in [
-          Geo.COUNTRY, Geo.STATE, Geo.CITY, Geo.VENUE]:
+      if q['title'].startswith("[L") or q['title'].startswith("Which city/") or q['title'].startswith("Which state"):
         #print(f"Cleaning out '{q['title']}:{q}'")
         deleted_refs[q['ref']] = None
         del self.tree['fields'][n - deleted_count]
@@ -206,7 +229,7 @@ class Formtree:
     for (n,j) in enumerate(list(self.tree['logic'])):
       #{"actions": [ { "details": { "to": { "value": ]
       if j['ref'] in deleted_refs or j.get('actions',[{}])[0].get('details',{}).get('to',{}).get('value') in deleted_refs:
-        print(f"Cleaning out logic jump {j['ref']}")
+        #print(f"Cleaning out logic jump {j['ref']}")
         del self.tree['logic'][n - deleted_count]
         deleted_count += 1
     print(f"Cleaned out {deleted_count} logic jumps")
@@ -223,17 +246,16 @@ class Formtree:
   # Add logic jump from a particular manually defined question to first
   # generated question
   def add_jump_out_logic(self):
-    ref_jump_out_q = self.find_ref_for_title('What time of day')
-    self.logic += [{
+    self.tree['logic'] += [{
         "type": "field",
-        "ref": ref_jump_out_q,
+        "ref": self.refs['EZ'],
         "actions": [
             {
                 "action": "jump",
                 "details": {
                     "to": {
                         "type": "field",
-                        "value": self.ref_first_place_q
+                        "value": self.refs['L1']
                     }
                 },
                 "condition": {
@@ -244,17 +266,63 @@ class Formtree:
         ]
     }]
 
-  # Add the generated questions and jump logic back to TypeForm
-  def merge_changes(self):
-    self.tree['fields'] += self.fields
-    self.tree['logic'] += self.logic
+  # Build an index of references to the questions. Used when
+  # generating logic jumps
+  def scan_questions(self):
+    for q in self.tree['fields']:
+      #print(f"q = {q['title']}")
+      try:
+        q_code = q['title'].split(" ")[0]
+        if q_code[0] == "[" and q_code[-1] == "]":
+          self.refs[q_code[1:-1]] = q['ref']
+          #print(f"Ref[{q_code[1:-1]}] = {q['ref']}")
+      except:
+        pass
+    #print(f"Refs = {self.refs}")
+
+  # TypeForm allows logic jumps, but only in the forward direction, 
+  # i.e. a logic jump must never jump to an earlier question.
+  # Therefore we have to sort questions to ensure they come in the
+  # designed sequence below. An asterisk (*) stands for any number
+  # or name. Specific questions that are part of the jumping logic
+  # have specific names, e.g. [EZ].
+  #
+  # [C*]   Contact person section
+  # [S*]   Spokesperson section
+  # [E*]   Event details section
+  #   [EZ] Last question in event section
+  # [L*]   Location section
+  #   [L1] First q
+  # [N*]   New location section
+  #   [NC] New city
+  #   [NV] New venue
+  # [F*]   Final section
+  #   [F1] First q in final section
+  def sort_questions(self):
+    classified_qs = { "C": [], "S": [], "E":[], "L":[], "N":[], "F":[] }
+    for q in self.tree['fields']:
+      try:
+        q_code = q['title'].split(" ")[0]
+        if q_code[0] == "[" and q_code[-1] == "]":
+          q_class = q_code[1]
+          classified_qs[q_class] += [q]
+          continue
+      except:
+        pass
+      print(f"### sort_questions: Question without classifier: '{q['title']}', skipping")
+
+    # Write back questions
+    self.tree['fields'] = []
+    # The sections have to go in this order
+    for c in ["C", "S", "E", "L", "N", "F"]:
+      self.tree['fields'] += classified_qs[c]
 
   # TypeForm uses UUIDs to identify questions in the
   # logic jumps. This function validates that all logic
   # jumps are referring to questions that actually exist
   def validate_refs(self):
     fields = {}
-    for q in self.tree['fields']:
+    for q in self.tree['fields'] + self.tree['thankyou_screens']:
       fields[q['ref']] = 0
     for j in self.tree['logic']:
       if 'ref' not in j:
@@ -263,6 +331,7 @@ class Formtree:
       if j['ref'] not in fields:
         print(f"### Jump from unknown field {j['ref']}")
         continue
+      fields[j['ref']] += 1
       if 'actions' not in j:
         print(f"### No actions in jump: {j}")
         continue
@@ -279,6 +348,7 @@ class Formtree:
         if act['details']['to']['value'] not in fields:
           print(f"### Jump to unknown field {act['details']['to']['value']}")
           continue
+        fields[act['details']['to']['value']] += 1
         if 'condition' not in act:
           print(f"### No condition in jump")
           continue
@@ -286,28 +356,58 @@ class Formtree:
           print(f"### No vars in jump")
           continue
         for var in act['condition']['vars']:
+          if 'type' not in var:
+            print(f"### No value in jump condition")
+            continue
+          if var['type'] != 'field':
+            continue
           if 'value' not in var:
             print(f"### No value in jump condition")
             continue
           if var['value'] not in fields:
             print(f"### Jump reference to unknown field {var['value']}")
             continue
+          fields[var['value']] += 1
+    # FIXME: check that refs go forward only
     for f in fields:
-      print(f"{f} : {fields[f]}")
+      print(f"{f} : {fields[f]} : {[q['title'][:40] for q in self.tree['fields'] if q['ref'] == f]}")
 
   # Write form to a local file
   def write(self, output_file):
     with open(output_file, "wt", encoding="utf-8") as out:
       out.write(json.dumps(self.tree, indent=2))
+    print(f"Wrote TypeForm to file '{output_file}'")
 
+  # Upload updated form to Typeform
+  def upload_typeform(self, form_id):
+    print(f"Writing TypeForm '{form_id}'")
+    updated_tree = {
+      key:self.tree[key] for key in [
+      'title', 'theme', 'workspace', 'settings', 
+      'welcome_screens', 'thankyou_screens', 'fields', 'logic']
+    }
+    response = self.forms.update(form_id, updated_tree)
+    if(response['id'] == form_id):
+      print("Uploaded successfully")
+    else:
+      print(f"Upload failure: {str(response)[:500]}...")
+    
 def usage():
-  # FIXME: Add proper usage message
-  print("Hej")
+  print(
+    f"""{sys.argv[0]} [-f] [-i input_form] [-o output_form]
+        Update Typeform with location questions from the FFF dababase
+        -h                Show this help
+        -i <input-form>   Typeform 6-character form-id to read from
+        -o <output-form>  Typeform 6-character form-id to write to
+        -f <output-file>  Send output to file instead
+    """)
 
 def main():
   output_file = None
+  output_form = Formtree.public_typeform
+  input_form = Formtree.master_typeform
   try:
-    opts, args = getopt.getopt(sys.argv[1:],"hi:o:",
+    opts, args = getopt.getopt(sys.argv[1:],"hi:o:f:",
       ["help", "input=", "output=", "debug"])
   except getopt.GetoptError:
     usage()
@@ -316,20 +416,28 @@ def main():
     if opt in ('-h', '--help'):
       usage()
       sys.exit()
-    elif opt in ("-o", "--output"):
+    elif opt in ("-f", "--file"):
       output_file = arg
-
+    elif opt in ("-i", "--input"):
+      input_form = arg
+    elif opt in ("-o", "--output"):
+      output_form = arg
+    
   # Form generation top level:
   # Download existing form from TypeForm servers
-  tree = Formtree(Formtree.master_typeform)  
+  tree = Formtree(input_form)  
   # Remove all country, state, city, venue related questions
   tree.clean_geo_questions()
+  # Remove all question id attributes
+  tree.clean_ids()
+  # Store refs to questions
+  tree.scan_questions()
   # Make new country, state, city, venue questions
   tree.make_geo_qs()
-  # Add logic jump to country, ... questions
+  # Update stored refs to questions
+  tree.sort_questions()
+  # Add additional logic jumps
   tree.add_jump_out_logic()
-  # Merge added questions and logic to original form
-  tree.merge_changes()
   # (optional) Validate all question references before uploading
   tree.validate_refs()
 
@@ -338,8 +446,8 @@ def main():
     # by e.g. Postman PUT https://api.typeform.com/forms/DFFFuY
     tree.write(output_file)
   else:
-    # FIXME: Add automatic upload of the result
-    pass # tree.upload_typeform('yQuH5S')
+    # Upload the result to TypeForm
+    tree.upload_typeform(output_form)
 
 if __name__ == '__main__':
   main()
