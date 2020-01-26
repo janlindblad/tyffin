@@ -61,7 +61,7 @@ class Formtree:
   public_typeform = 'DFFFuY'
   
   # Download TypeForm form and initialize processing structures
-  def __init__(self, form_id):
+  def __init__(self, form_id, fff_data_file = None):
     print(f"Reading TypeForm '{form_id}'")
     self.forms = self.fetch_typeform_form_cat()
     self.tree = self.fetch_form_dict(form_id)
@@ -69,7 +69,7 @@ class Formtree:
       self.tree['logic'] = []
     self.refs = {}
     print(f"Initializing from FFF database")
-    Geo.init_from_livedata()
+    Geo.init_from_livedata(fff_data_file)
     print(f"Done initializing")
 
   # Fetch typeform form catalogue from the web
@@ -200,9 +200,10 @@ class Formtree:
     }]
     return this_qid
 
-  # Remove any questionb "id" attributes (that we read from TypeForm)
+  # Remove any question "id" attributes (that we read from TypeForm)
   # TypeForm likes to assign them, and does not tolerate them if 
   # the question did not previously exist (in the form being written)
+  # with the same id. Better then not to have any id:s at all.
   def clean_ids(self):
     for q in self.tree['fields']:
       if 'id' in q:
@@ -419,8 +420,14 @@ def main():
     elif opt in ("-f", "--file"):
       output_file = arg
     elif opt in ("-i", "--input"):
+      if len(arg) != 6:
+        print(f"### Valid TypeForm forms are 6-characters: {arg}")
+        sys.exit(3)
       input_form = arg
     elif opt in ("-o", "--output"):
+      if len(arg) != 6:
+        print(f"### Valid TypeForm forms are 6-characters: {arg}")
+        sys.exit(3)
       output_form = arg
     
   # Form generation top level:

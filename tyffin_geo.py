@@ -30,15 +30,20 @@ class Geo:
   Z = None
 
   # Initialize the atlas datastructure with information from the map
-  # database.
-  # FIXME: This information is currently loaded from a file, not the web
+  # database. Normally this is fetched from the open json file on the
+  # web, but a filename may also be specified.
   #
   # The atlas datastructure has hardcoded information about countries
   # and states. This function adds cities and venues into that structure.
-  def init_from_livedata():
-    geo_filename = 'fff-global-map.json'
-    with open(geo_filename, "rt", encoding="utf-8") as source_file:
-      livedata = json.loads(source_file.read())
+  def init_from_livedata(geo_filename = None):
+    if geo_filename:
+      with open(geo_filename, "rt", encoding="utf-8") as source_file:
+        livedata = json.loads(source_file.read())
+    else:
+      reply = requests.get("https://allforeco.github.io/fridaysforfuture/fff-global-map.json")
+      if reply.status_code != 200:
+        raise Exception("Could not download fff data from servers")
+      livedata = reply.json()
     country_names = Geo.atlas['Earth'][1]
 
     # Loop over all the map pins
