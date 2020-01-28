@@ -57,8 +57,8 @@ false = False
 # FIXME: Handle new venues ("other" venue)
 
 class Formtree:
-  master_typeform = 'yQuH5S'
-  public_typeform = 'DFFFuY'
+  master_typeform = 'yQuH5S' 
+  public_typeform = 'DFFFuY' 
   
   # Download TypeForm form and initialize processing structures
   def __init__(self, form_id, fff_data_file = None):
@@ -74,7 +74,7 @@ class Formtree:
 
   # Fetch typeform form catalogue from the web
   def fetch_typeform_form_cat(self):
-    token_env = 'TYPEFORM_TOKEN'
+    token_env = 'TYPEFORM_TOKEN' 
     if token_env not in os.environ:
       raise Exception(f"Environment variable '{token_env}' not set")
     forms = Typeform(os.environ[token_env]).forms
@@ -148,7 +148,7 @@ class Formtree:
       if not isinstance(geo_sub[geo_loc], tuple):
         # If this choice has no sub-locations, don't generate anything
         # for this choice
-        continue
+        continue  
       # This location has sub-locations, generate them
       next_q = self._make_geo_rec(geo_loc, geo_sub[geo_loc], new_path)
       # Add a logic jump from the parent question, so that if this choice
@@ -176,7 +176,38 @@ class Formtree:
                 ]
             }
         }]
-
+        
+    # Add a logic jump back to the question that
+    # goes after selection of "== Other =="
+    self.tree['logic'] += [{
+        "type": "field",
+        "ref": this_qid,
+        "actions": actions + [
+            {
+                "action": "jump",
+                "details": {
+                    "to": {
+                        "type": "field",
+                        "value": self.refs['NC']
+                    }
+                },
+                "condition": {
+                    "op": "contains",
+                    "vars": [
+                       {
+                        "type":"field",
+                        "value":this_qid
+                     },
+                     {
+                        "type":"constant",
+                        "value":label_other
+                     }
+                    ]
+                }
+            }
+        ]
+    }]
+    
     # Finally, add a catch-all logic jump back to the question that
     # goes after the country, state, city, venue questions
     self.tree['logic'] += [{
