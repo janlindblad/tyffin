@@ -20,18 +20,20 @@ import sys, os, getopt
 import requests, json, uuid
 from datetime import datetime, timedelta
 
-from coffer_table import Table, GS_Table
-from coffer_task import Task, Constant_Tasklist, GS_Tasklist, GS_Collect_Task, Tyffin_Collect_Task, Gen_Task
-from coffer_dataformat import FFF_GS_Dataformat
+from coffer_table import Table
+from coffer_task import Task, Constant_Tasklist
+from coffer_collect import GS_Collect_Task, Tyffin_Collect_Task
+from coffer_generate import GS_Generate_Task
 
 class RunControl:
   def init():
     print(f"RunControl.init()")
     RunControl.root_tasklist = Constant_Tasklist("root_tasklist", [
       GS_Collect_Task('collect-gs', '1oE86UrOlmO7chBSMHKqU78Yzec-xOYaKlgRBtSetijk', 'Copy of Control'),
+      GS_Generate_Task('generate-gs', 'collect-gs'),
       #Tyffin_Collect_Task({'Title':'collect-tyffin'}),
       #Collect_Task({'Title':'collect-earthday'}),
-      #Gen_Task({'Title':'gensheets', 'GS_Tasklist':('gs','1oE86UrOlmO7chBSMHKqU78Yzec-xOYaKlgRBtSetijk','Copy of Control')}),
+      #Coffer_Task('All Inputs',       ]),
       #Gen_Task({'Title':'tyffin'}),
       #Task({'Title':'run', 'Tasklist':("GS_Tasklist",'gs','1oE86UrOlmO7chBSMHKqU78Yzec-xOYaKlgRBtSetijk','Copy of Control')}),
     ])

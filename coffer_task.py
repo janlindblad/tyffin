@@ -19,14 +19,19 @@ from coffer_dataformat import FFF_Controlsheet_Dataformat, FFF_GS_Dataformat
 import re
 
 class Task(Item):
-  def factory(task_dict):
+  factory_registry = {}
+
+  def factory_register(name, builder_func):
+    Task.factory_registry[name] = builder_func
+
+  def factory(task_dict): #FIXME
     if 'Trafis' in task_dict and 'Title' in task_dict and task_dict['Title']:
       return CS_Task(task_dict)
     if '_class' not in task_dict:
       return None
-    _class = task_dict['_class']
-    if _class == 'GS_Collect_Task':
-      return GS_Collect_Task(task_dict=task_dict)
+    builder_func = Task.factory_registry.get(task_dict['_class'], None)
+    if builder_func:
+      return builder_func(task_dict=task_dict)
     return None
 
   def __init__(self, task_dict):
@@ -50,63 +55,6 @@ class CS_Task(Task):
     self._dict['_class'] = 'CS_Task'
     #{'Title': 'FFF Global Map WFF', 'Frequency': 'daily', 'Link': 'Open', 'Columns': 'ECOUNTRY, ECITY, ELOCATION, ETIME, EDATE, EFREQ, ELINK, ETYPE, GLAT, GLON, CNAME, CEMAIL, CPHONE, CNOTES, CORG2, CCOL', 'Trafis': 'isApproved, tISODate, tGoogleLoc, tisRecurringOn', 'Sumfis': 'sumGroupByCity, sumCountCountries, sumForkRecurringEvents', 'Params': 'date:2019-09-20+2019-09-21--2019-09-27', 'Delivery': 'toGoogle', 'Sheet': '1bFdJDjElWlNUOabE0p9lXM8OeGr4KyPxFF00zyHL5nE', 'Input': '', 'Global Sync': '', 'Map Organiser': '', 'Notify email': '', 'Comments': '', 'Actual Title': '', 'Sheet link view only': '', 'Social Media': '', 'Country Organising Minutes': '', 'Country bulk reporting systeme': ''}]
 
-class Reorient_Task(Task):
-  def create(name, args):
-    return Reorient_Task(name, args)
-
-  def __init__(self, name, args):
-    print(f"new Reorient({name}, {args})")
-    pass
-
-class TaskParser:
-  parser_dict = {
-    "reorient": Reorient_Task
-  }
-
-class Collect_Task(Task):
-  def __init__(self, task_dict):
-    super().__init__(task_dict)
-
-class GS_Collect_Task(Collect_Task):
-  def __init__(self, title = None, sheet = None, tab = None, task_dict = None):
-    if task_dict:
-      super().__init__(task_dict)
-      self._dict['_class'] = 'GS_Collect_Task'
-      (title, sheet, tab) = task_dict['GS_Tasklist']
-      self.tasklist = GS_Tasklist(title, sheet, tab)
-    else:
-      super().__init__({'Title': title, '_class':'GS_Collect_Task', 'GS_Tasklist':(title, sheet, tab)})
-      #self._dict['Title'] = title
-      #print(f"GS_Collect_Task({self.GS_Tasklist}, {1})")
-      self.tasklist = GS_Tasklist('gs', sheet, tab)
-
-  def run(self, selector = None):
-    print(f"GS_Collect_Task.run(selector={selector})")
-    subtasks = self.tasklist.get_tasks(selector)
-    for subtask in subtasks:
-      if not selector or ('Title' in subtask and selector[0] in subtask['Title']):
-        #print(f"GS_Collect_Task.run ==> {subtask}")
-        sheet_title = subtask['Title']
-        sheetid = subtask['Sheet']
-        tabid = subtask['Input']
-        if not tabid or not sheetid:
-          #print(f"GS_Collect_Task.run({sheet_title}) missing sheetid/tabid '{sheetid}'/'{tabid}', skipping")
-          continue
-        tableid = f"{sheet_title}#{sheetid}#{tabid}"
-        print(f"GS_Collect_Task.run ==> fetching ({tableid})")
-        table = GS_Table(tableid, sheetid, tabid, keymapper=FFF_GS_Dataformat.keymapper)
-        num_recs = len(table.read_all())
-        print(f"GS_Collect_Task.run stored {num_recs} records")
-      else:
-        pass
-        #print(f"GS_Collect_Task.run skipping subtask")
-
-class Tyffin_Collect_Task(Collect_Task):
-  pass
-
-class Gen_Task(Task):
-  pass
-
 class Tasklist(Table):
   def __init__(self, tableid):
     self.name = tableid
@@ -120,7 +68,9 @@ class Tasklist(Table):
       search_dict[FFF_Controlsheet_Dataformat.title_key] = {"$regex": f".*{re.escape(selector[0])}.*"}
     print(f"Tasklist.get_tasks({self.name}, {selector}) search_dict = {search_dict}")
     table = self.get_table()
+    #print(f"Tasklist.get_tasks all tasks = {list(table.find())}")
     for task_dict in table.find(search_dict):
+      print(f"Tasklist.get_tasks found = {task_dict}")
       new_task = Task.factory(task_dict)
       if new_task:
         tasks += [new_task]

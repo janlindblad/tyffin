@@ -28,6 +28,10 @@ class Table():
     Table.client = MongoClient('mongodb://localhost:27017/')
     Table.db = Table.client[dbid]
 
+  def get_collection_names(name_starts_with = ""):
+    return [coll_name for coll_name in Table.db.collection_names(include_system_collections=False) 
+      if coll_name.startswith(name_starts_with)]
+
   def __init__(self, tableid):
     self.tableid = tableid
     self.table = Table.db[self.tableid]
@@ -40,19 +44,19 @@ class Table():
     return []
 
   def refresh_table(self, external_records = None):
-    print(f"Table.refresh_table({self.tableid}) destroyed contents")
-    self.table.delete_many({})
     if external_records == None:
       external_records = self.get_external_records()
     if self.keymapper:
       external_records = [{self.keymapper[key]:str(dct[key]) for key in dct if dct[key] != ''} for dct in external_records]
     #print(f"Table.refresh_table() inserting {len(external_records)} records")
     if external_records:
+      self.table.delete_many({})
+      print(f"Table.refresh_table({self.tableid}) destroyed contents")
       #print(f"Table.refresh_table({self.table.name}) refill records {external_records}")
       self.table.insert_many(external_records)
       print(f"Table.refresh_table({self.tableid}) refilled {len(external_records)} records")
     else:
-      print(f"Table.refresh_table({self.tableid}) not refilled")
+      print(f"Table.refresh_table({self.tableid}) not refreshed")
 
   def refresh(self):
     #print(f"Table.refresh({self.tableid})")
