@@ -61,13 +61,17 @@ class Formtree:
   public_typeform = 'DFFFuY' 
   
   # Download TypeForm form and initialize processing structures
-  def __init__(self, form_id, fff_data_file = None):
+  def __init__(self, form_id, filter1, filter2, fff_data_file = None):
     print(f"Reading TypeForm '{form_id}'")
     self.forms = self.fetch_typeform_form_cat()
     self.tree = self.fetch_form_dict(form_id)
     if 'logic' not in self.tree:
       self.tree['logic'] = []
     self.refs = {}
+    
+    # initialize Geo with the filters
+    Geo(filter1, filter2)
+    
     print(f"Initializing from FFF database")
     Geo.init_from_livedata(fff_data_file)
     print(f"Done initializing")
@@ -438,9 +442,11 @@ def main():
   output_file = None
   output_form = Formtree.public_typeform
   input_form = Formtree.master_typeform
+  filter1 = '' # default is no filter at level 1, all countries will be included
+  filter2 = '' # default is also no level filtering 
   try:
-    opts, args = getopt.getopt(sys.argv[1:],"hi:o:f:",
-      ["help", "input=", "output=", "debug"])
+    opts, args = getopt.getopt(sys.argv[1:],"hi:o:f:r:d:",
+      ["help", "input=", "output=", "region_filter=", "district_filter="])
   except getopt.GetoptError:
     usage()
     sys.exit(2)
@@ -460,10 +466,15 @@ def main():
         print(f"### Valid TypeForm forms are 6-characters: {arg}")
         sys.exit(3)
       output_form = arg
+    elif opt in ("-r","--region_filter"):
+      filter1 = arg
+    elif opt in ("-d","--district_filter"):
+      filter2 = arg
     
+    print('filters: ', filter1, ' ', filter2)
   # Form generation top level:
   # Download existing form from TypeForm servers
-  tree = Formtree(input_form)  
+  tree = Formtree(input_form, filter1, filter2)  
   # Remove all country, state, city, venue related questions
   tree.clean_geo_questions()
   # Remove all question id attributes
