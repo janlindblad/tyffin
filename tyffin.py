@@ -107,7 +107,10 @@ class Formtree:
   def get_title(geo_subcat, geo_path):
     if len(geo_path) < 2:
       return f"[L1] Which country is the event in?"
-    return f"[L{len(geo_path)}] Which {geo_subcat} in {geo_path[-1]} is the event in?"
+    if (geo_subcat == 'state'):
+        return f"[L1b] Which {geo_subcat} in {geo_path[-1]} is the event in?"
+    else:
+        return f"[L2] Which {geo_subcat} in {geo_path[-1]} is the event in?"
 
   # Generate a TypeForm question for a particular location.
   # The location could be a country, state, city or venue
@@ -442,6 +445,14 @@ def main():
   output_file = None
   output_form = Formtree.public_typeform
   input_form = Formtree.master_typeform
+  
+  print(f"If you run tyffin.py, all answers that have been given to the output form '{output_form}' will be deleted.")
+  sys.stdout.write("Are you sure you want to run tyffin.py and thus delete the replies (yes/n)? ")
+  ans = input().lower()    
+  if ans != 'yes':
+    print(f"Will exit tyffin.py now.")
+    exit()
+    
   filter1 = '' # default is no filter at level 1, all countries will be included
   filter2 = '' # default is also no level filtering 
   try:
