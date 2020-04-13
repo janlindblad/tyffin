@@ -445,13 +445,6 @@ def main():
   output_file = None
   output_form = Formtree.public_typeform
   input_form = Formtree.master_typeform
-  
-  print(f"If you run tyffin.py, all answers that have been given to the output form '{output_form}' will be deleted.")
-  sys.stdout.write("Are you sure you want to run tyffin.py and thus delete the replies (yes/n)? ")
-  ans = input().lower()    
-  if ans != 'yes':
-    print(f"Will exit tyffin.py now.")
-    exit()
     
   filter1 = '' # default is no filter at level 1, all countries will be included
   filter2 = '' # default is also no level filtering 
@@ -506,6 +499,12 @@ def main():
     # by e.g. Postman PUT https://api.typeform.com/forms/DFFFuY
     tree.write(output_file)
   else:
+    print(f"If you run tyffin.py, all answers that have been given to the output form '{output_form}' will be deleted.")
+    sys.stdout.write("Are you sure you want to run tyffin.py and thus delete the replies (yes/n)? ")
+    ans = input().lower()    
+    if ans != 'yes':
+      print(f"Will exit tyffin.py now.")
+      exit()
     # Upload the result to TypeForm
     tree.upload_typeform(output_form)
 
